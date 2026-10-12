@@ -1,7 +1,7 @@
 // Peers: other herdr-web servers this one fronts, so a single UI (and a single
 // token) reaches every machine. A peer's API is exposed at /h/<name>/api/*.
 
-// `travel=http://192.168.178.203:4270` -> {name, url}; null when malformed.
+// `travel=http://192.168.1.30:4270` -> {name, url}; null when malformed.
 export function parsePeer(spec) {
   const i = typeof spec === 'string' ? spec.indexOf('=') : -1;
   if (i < 1) return null;

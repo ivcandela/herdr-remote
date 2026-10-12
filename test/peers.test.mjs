@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parsePeer, splitPeerPath, forwardSearch } from '../peers.mjs';
 
 test('parsePeer reads name=url', () => {
-  assert.deepEqual(parsePeer('travel=http://192.168.178.203:4270/'), { name: 'travel', url: 'http://192.168.178.203:4270' });
+  assert.deepEqual(parsePeer('travel=http://192.168.1.30:4270/'), { name: 'travel', url: 'http://192.168.1.30:4270' });
 });
 
 test('parsePeer rejects malformed specs', () => {
