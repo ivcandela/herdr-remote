@@ -175,6 +175,11 @@
   #detail .bar { position: relative; }
   #detail.notfound #moreBtn { visibility: hidden; }
   .agent.blocked { border-left: 3px solid var(--blocked); }
+  .agent .tico { flex: none; width: 14px; height: 14px; stroke: var(--text-2); }
+  .ws-sub {
+    font-size: 12px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-2); padding: 14px 2px 8px;
+  }
   .status {
     flex: none; width: 11px; height: 11px; border-radius: 50%;
     background: var(--unknown);
@@ -504,6 +509,7 @@
 
 <!-- Lucide (ISC) -->
 <svg class="sprite" aria-hidden="true">
+<symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
   <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
   <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
   <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/></symbol>
@@ -545,7 +551,7 @@
     <button class="iconbtn" id="refreshBtn" aria-label="Refresh output">
       <svg class="ic"><use href="#i-refresh-cw"></use></svg>
     </button>
-    <button class="iconbtn" id="moreBtn" aria-label="Agent actions" aria-haspopup="menu" aria-expanded="false"><svg class="ic"><use href="#i-ellipsis"></use></svg></button>
+    <button class="iconbtn" id="moreBtn" aria-label="Actions" aria-haspopup="menu" aria-expanded="false"><svg class="ic"><use href="#i-ellipsis"></use></svg></button>
   </div>
   <div id="out">
     <button type="button" id="earlierBtn" hidden>Show earlier output</button>
@@ -583,7 +589,7 @@
 
 <div id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
   <form id="sheetForm">
-    <h3 id="sheetTitle">New tab</h3>
+    <h3 id="sheetTitle">Open</h3>
     <div>
       <label for="naName">Name (optional)</label>
       <input type="text" id="naName" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -595,12 +601,12 @@
     <div>
       <label for="naCmd">Command</label>
       <div class="chips">
-        <button type="button" data-cmd="">shell</button>
+        <button type="button" data-cmd="">terminal</button>
         <button type="button" data-cmd="claude">claude</button>
         <button type="button" data-cmd="claude --continue">claude --continue</button>
         <button type="button" data-cmd="codex">codex</button>
       </div>
-      <input type="text" id="naCmd" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="empty = plain shell; or a command (split on whitespace)">
+      <input type="text" id="naCmd" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="empty = terminal; or a command (split on whitespace)">
     </div>
     <div class="actions">
       <button type="button" id="naCancel">Cancel</button>
@@ -707,15 +713,12 @@
   const basename = (p) => (p || '').replace(/\/+$/, '').split('/').pop() || p || '';
   // Event titles keep the agent's spinner glyph; drop leading symbols.
   const cleanTitle = (t) => (t || '').replace(/^[^\p{L}\p{N}]+\s*/u, '');
-  // A user-set name wins over the terminal title; plain shells have no agent.
-  const agentTitle = (a) => a.name || cleanTitle(a.terminal_title_stripped || a.terminal_title) || a.agent || 'shell';
-  const agentKind = (a) => a.agent || 'shell';
-  // The herdr tab an agent or shell lives in, shown when its workspace has more than one.
-  function tabLabelOf(a) {
-    const ws = overview.workspaces.find((w) => w.host === a.host && w.workspace_id === a.workspace_id);
-    const tabs = ws?.tabs || [];
-    return tabs.length > 1 ? tabs.find((t) => t.tab_id === a.tab_id)?.label || '' : '';
-  }
+  // A pane is an agent when herdr detected one in it; otherwise it is a plain terminal.
+  const isAgent = (a) => !!a.agent;
+  const paneNoun = (a) => (isAgent(a) ? 'agent' : 'terminal');
+  // A user-set name wins over the terminal title.
+  const agentTitle = (a) => a.name || cleanTitle(a.terminal_title_stripped || a.terminal_title) || a.agent || 'terminal';
+  const plural = (n, noun) => n + ' ' + noun + (n === 1 ? '' : 's');
   const postJSON = (path, body, host) => api(path, {
     host,
     method: 'POST',
@@ -792,7 +795,7 @@
     const hostSig = shown.map((h) => [h.id, h.name, hostState.get(h.id).status, hostState.get(h.id).error]);
     const sig = JSON.stringify([hostSig, sections.map(({ ws, agents }) =>
       [ws.host, ws.workspace_id, ws.label, agents.map((a) =>
-        [a.terminal_id, a.agent_status, agentTitle(a), a.agent, basename(a.cwd), tabLabelOf(a)])])]);
+        [a.terminal_id, a.agent_status, agentTitle(a), a.agent, basename(a.cwd)])])]);
     if (sig === renderedSig) return;
     renderedSig = sig;
     root.replaceChildren();
@@ -843,12 +846,15 @@
       h.textContent = ws.label || ('Workspace ' + ws.number);
       const c = document.createElement('span');
       c.className = 'count';
-      c.textContent = agents.length === 1 ? '1 agent' : agents.length + ' agents';
+      const agentCards = agents.filter(isAgent);
+      const terminals = agents.filter((a) => !isAgent(a));
+      c.textContent = [plural(agentCards.length, 'agent'), terminals.length ? plural(terminals.length, 'terminal') : null]
+        .filter(Boolean).join(' · ');
       h.appendChild(c);
       const add = document.createElement('button');
       add.type = 'button';
       add.className = 'add';
-      add.setAttribute('aria-label', 'New tab in ' + (ws.label || 'workspace ' + ws.number));
+      add.setAttribute('aria-label', 'Open an agent or terminal in ' + (ws.label || 'workspace ' + ws.number));
       add.innerHTML = '<svg class="ic"><use href="#i-plus"></use></svg>';
       add.addEventListener('click', () => openSheet(ws));
       h.appendChild(add);
@@ -856,17 +862,24 @@
       if (!agents.length) {
         const p = document.createElement('p');
         p.className = 'empty-ws';
-        p.textContent = 'No agents in this workspace.';
+        p.textContent = 'Nothing running in this workspace.';
         sec.appendChild(p);
       }
-      for (const a of agents) sec.appendChild(agentCard(a));
+      for (const a of agentCards) sec.appendChild(agentCard(a));
+      if (terminals.length) {
+        const sub = document.createElement('h3');
+        sub.className = 'ws-sub';
+        sub.textContent = 'Terminals';
+        sec.appendChild(sub);
+        for (const a of terminals) sec.appendChild(agentCard(a));
+      }
       root.appendChild(sec);
     }
   }
 
   function agentCard(a) {
     const card = document.createElement('div');
-    card.className = 'agent' + (a.agent_status === 'blocked' ? ' blocked' : '');
+    card.className = 'agent' + (isAgent(a) ? '' : ' terminal') + (a.agent_status === 'blocked' ? ' blocked' : '');
     card.dataset.pane = a.pane_id;
     // A div with role=button: the title swaps to an <input> on rename, which
     // cannot live inside a real <button>.
@@ -874,8 +887,8 @@
     open.className = 'open';
     open.setAttribute('role', 'button');
     open.tabIndex = 0;
-    const dot = document.createElement('span');
-    dot.className = 'status ' + (a.agent_status || 'unknown');
+    const dot = isAgent(a) ? document.createElement('span') : null;
+    if (dot) dot.className = 'status ' + (a.agent_status || 'unknown');
     const meta = document.createElement('span');
     meta.className = 'meta';
     const title = document.createElement('span');
@@ -885,11 +898,14 @@
     sub.className = 'sub';
     const state = document.createElement('span');
     state.className = 'state';
-    state.textContent = a.agent ? (a.agent_status || 'unknown') : 'shell';
-    const tab = tabLabelOf(a);
-    sub.append(state, ' · ' + [a.agent || null, tab ? 'tab ' + tab : null, basename(a.cwd)].filter(Boolean).join(' · '));
+    state.textContent = isAgent(a) ? (a.agent_status || 'unknown') : 'terminal';
+    sub.append(state, ' · ' + [a.agent || null, basename(a.cwd)].filter(Boolean).join(' · '));
     meta.append(title, sub);
-    open.append(dot, meta);
+    if (dot) open.append(dot, meta);
+    else {
+      open.insertAdjacentHTML('beforeend', '<svg class="ic tico"><use href="#i-terminal"></use></svg>');
+      open.append(meta);
+    }
     open.insertAdjacentHTML('beforeend',
       '<svg class="ic chev"><use href="#i-chevron-right"></use></svg>');
     const go = () => {
@@ -937,14 +953,14 @@
     };
     const showMain = () => {
       menu.replaceChildren(
-        mk('Rename', '', () => { menu.remove(); trigger.setAttribute('aria-expanded', 'false'); inlineRename(a, titleEl, opts.onDone); }),
+        ...(isAgent(a) ? [mk('Rename', '', () => { menu.remove(); trigger.setAttribute('aria-expanded', 'false'); inlineRename(a, titleEl, opts.onDone); })] : []),
         mk('Close', 'danger', showConfirm),
       );
     };
     const showConfirm = () => {
       const q = document.createElement('span');
       q.className = 'q';
-      q.textContent = 'Close this agent?';
+      q.textContent = 'Close this ' + paneNoun(a) + '?';
       menu.replaceChildren(q, mk('Yes', 'danger', async () => {
         try {
           await postJSON('/api/panes/' + encodeURIComponent(a.pane_id) + '/close', {}, a.host);
@@ -979,7 +995,7 @@
     input.maxLength = 64;
     input.value = a.name || '';
     input.placeholder = prev;
-    input.setAttribute('aria-label', 'Agent name');
+    input.setAttribute('aria-label', 'Name');
     titleEl.replaceChildren(input);
     let finished = false;
     const finish = async (save) => {
@@ -1040,7 +1056,7 @@
     $('naCwd').value = ws.worktree?.checkout_path || ws.agents.find((a) => a.cwd)?.cwd || '';
     $('naCmd').value = PRESETS[0];
     syncChips();
-    $('sheetTitle').textContent = 'New tab in ' + (ws.label || 'workspace ' + ws.number)
+    $('sheetTitle').textContent = 'Open in ' + (ws.label || 'workspace ' + ws.number)
       + (multiHost() ? ' on ' + hostById(ws.host).name : '');
     $('sheet').classList.add('open');
     $('naName').focus();
@@ -1072,7 +1088,7 @@
     btn.disabled = true;
     try {
       const r = await postJSON('/api/tabs', { label: name || null, cwd: cwd || null, workspace_id: sheetWs.workspace_id, argv }, hostId);
-      toast('Opened ' + (name || (argv[0] || 'shell')));
+      toast('Opened ' + (name || (argv[0] || 'terminal')));
       closeSheet();
       await loadOverview(hostId);
       const id = r?.pane?.terminal_id;
@@ -1184,8 +1200,9 @@
   function updateDetailHeader() {
     if (!current) return;
     if (!$('dTitle').querySelector('input')) $('dTitle').textContent = agentTitle(current);
-    $('dStatus').className = 'status ' + (current.agent_status || 'unknown');
-    $('dSub').textContent = (current.agent_status || 'unknown') + ' · ' + (current.cwd || '');
+    $('dStatus').className = 'status ' + (isAgent(current) ? current.agent_status || 'unknown' : 'unknown');
+    $('dSub').textContent = (isAgent(current) ? current.agent_status || 'unknown' : 'terminal') + ' · ' + (current.cwd || '');
+    updateSendPlaceholder();
   }
 
   // ---- ANSI SGR -> DOM ----
@@ -1514,11 +1531,15 @@
   // Keystroke mode: agent.send pastes, which interactive prompts (model
   // picker, y/n, numbered menus) ignore; pane.send_keys delivers real keys.
   let keyMode = false;
+  function updateSendPlaceholder() {
+    $('sendInput').placeholder = keyMode ? 'Keystrokes… (each char is a key)'
+      : current && !isAgent(current) ? 'Type a command…' : 'Send text to agent…';
+  }
   $('keyModeBtn').addEventListener('click', () => {
     keyMode = !keyMode;
     $('keyModeBtn').setAttribute('aria-pressed', String(keyMode));
     $('composer').classList.toggle('keymode-on', keyMode);
-    $('sendInput').placeholder = keyMode ? 'Keystrokes… (each char is a key)' : 'Send text to agent…';
+    updateSendPlaceholder();
     $('sendInput').focus();
   });
 
