@@ -52,6 +52,7 @@ const CORS_ORIGINS = args.reduce((acc, a, i) => {
 // They are called with --peer-token (default: our own token).
 const PEER_TOKEN = argValue('--peer-token', TOKEN);
 const PEERS = new Map();
+const peerErrors = new Map(); // peer name -> last error code logged
 args.forEach((a, i) => {
   if (a !== '--peer' || !args[i + 1]) return;
   const peer = parsePeer(args[i + 1]);
@@ -661,7 +662,12 @@ function proxyToPeer(req, res, url) {
     pres.on('close', () => { if (!res.writableEnded) res.destroy(); });
   });
   preq.on('timeout', () => preq.destroy(new Error('timeout')));
-  preq.on('error', () => {
+  preq.on('error', (e) => {
+    // Log when a peer's failure reason changes, not on every poll of a peer that stays down.
+    if (peerErrors.get(target.name) !== e.code) {
+      peerErrors.set(target.name, e.code);
+      console.error(`peer ${target.name}: ${e.code || e.message}`);
+    }
     if (!res.headersSent) sendJSON(res, 502, { error: `peer ${target.name} unreachable` });
     else res.end();
   });
