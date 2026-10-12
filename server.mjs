@@ -36,6 +36,9 @@ const TOKEN = argValue('--token', null);
 const TLS_CERT = argValue('--tls-cert', null);
 const TLS_KEY = argValue('--tls-key', null);
 const NOTIFY = args.includes('--notify');
+// Agents herdr can start in a pane (see: herdr agent start --help).
+const AGENT_KINDS = new Set(['pi', 'claude', 'codex', 'gemini', 'cursor', 'devin', 'agy', 'cline', 'omp', 'mastracode', 'opencode',
+  'copilot', 'kimi', 'kiro', 'droid', 'amp', 'grok', 'hermes', 'kilo', 'qodercli', 'qwen', 'letta', 'maki', 'muse']);
 const PEER_CONNECT_MS = 4000;
 const PEER_IDLE_MS = 60000;
 const HISTORY_LINES = Number(argValue('--history-lines', 10000));
@@ -273,10 +276,18 @@ function indexAgents(agents) {
   }
 }
 
+// agent.list only covers panes where herdr detected an agent; pane.list also has
+// plain shells. Shells come back shaped like agents (no `agent`, status unknown).
+async function listPanes() {
+  const [{ agents = [] }, { panes = [] }] = await Promise.all([rpc('agent.list'), rpc('pane.list')]);
+  const known = new Set(agents.map((a) => a.terminal_id));
+  return [...agents, ...panes.filter((p) => p.terminal_id && !known.has(p.terminal_id))];
+}
+
 async function resolvePane(terminalId) {
   if (terminalId.includes(':')) return terminalId; // already a pane id
   if (!paneByTerminal.has(terminalId)) {
-    const { agents = [] } = await rpc('agent.list');
+    const agents = await listPanes();
     indexAgents(agents);
   }
   const paneId = paneByTerminal.get(terminalId);
@@ -373,7 +384,7 @@ function pruneActivity(liveIds) {
 // the moment someone opens the page.
 async function refreshActivity() {
   try {
-    const { agents = [] } = await rpc('agent.list');
+    const agents = await listPanes();
     recordActivity(agents);
   } catch { /* transient */ }
 }
@@ -387,8 +398,12 @@ let overviewTimer = null;
 let lastOverviewJSON = null;
 
 async function buildOverview() {
-  const [ws, ag] = await Promise.all([rpc('workspace.list'), rpc('agent.list')]);
-  const agents = ag.agents || [];
+  const [ws, agents, tl] = await Promise.all([rpc('workspace.list'), listPanes(), rpc('tab.list')]);
+  const tabsByWorkspace = new Map();
+  for (const t of tl.tabs || []) {
+    if (!tabsByWorkspace.has(t.workspace_id)) tabsByWorkspace.set(t.workspace_id, []);
+    tabsByWorkspace.get(t.workspace_id).push({ tab_id: t.tab_id, label: t.label, number: t.number });
+  }
   recordActivity(agents);
   const byWorkspace = new Map();
   for (const a of agents) {
@@ -399,6 +414,7 @@ async function buildOverview() {
     workspaces: (ws.workspaces || []).map((w) => ({
       ...w,
       agents: byWorkspace.get(w.workspace_id) || [],
+      tabs: tabsByWorkspace.get(w.workspace_id) || [],
     })),
   };
 }
@@ -677,6 +693,7 @@ function proxyToPeer(req, res, url) {
 
 async function handleApi(req, res, url) {
   if (!passesAuth(req, res, url)) return;
+  const ip = req.socket.remoteAddress || 'unknown';
   // decode segments: pane ids contain ':' which clients URL-encode
   const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent); // ['api', ...]
 
@@ -692,7 +709,7 @@ async function handleApi(req, res, url) {
     if (req.method === 'GET' && parts[1] === 'agents' && parts[3] === 'commands') {
       let agent = lastAgents.find((a) => a.terminal_id === parts[2] || a.pane_id === parts[2]);
       if (!agent) {
-        const { agents = [] } = await rpc('agent.list');
+        const agents = await listPanes();
         indexAgents(agents);
         lastAgents = agents;
         agent = agents.find((a) => a.terminal_id === parts[2] || a.pane_id === parts[2]);
@@ -739,13 +756,12 @@ async function handleApi(req, res, url) {
       return sendJSON(res, 200, result ?? { ok: true });
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/agents') {
-      const { name, cwd, workspace_id, argv } = await readBody(req);
-      if (typeof name !== 'string' || !name.trim() || name.length > 64) {
-        return sendJSON(res, 400, { error: 'name must be a non-empty string of at most 64 chars' });
-      }
-      if (!Array.isArray(argv) || !argv.length || !argv.every((a) => typeof a === 'string')) {
-        return sendJSON(res, 400, { error: 'argv must be a non-empty string array' });
+    // herdr >= 0.9 starts agents only inside an existing pane, so a new session is
+    // a new tab (a shell) plus, when asked, an agent or command started in it.
+    if (req.method === 'POST' && url.pathname === '/api/tabs') {
+      const { label, cwd, workspace_id, argv } = await readBody(req);
+      if (label !== undefined && label !== null && (typeof label !== 'string' || label.length > 64)) {
+        return sendJSON(res, 400, { error: 'label must be a string of at most 64 chars' });
       }
       if (cwd !== undefined && cwd !== null && typeof cwd !== 'string') {
         return sendJSON(res, 400, { error: 'cwd must be a string' });
@@ -753,17 +769,35 @@ async function handleApi(req, res, url) {
       if (workspace_id !== undefined && workspace_id !== null && typeof workspace_id !== 'string') {
         return sendJSON(res, 400, { error: 'workspace_id must be a string' });
       }
+      if (argv !== undefined && argv !== null && (!Array.isArray(argv) || !argv.every((a) => typeof a === 'string'))) {
+        return sendJSON(res, 400, { error: 'argv must be a string array' });
+      }
+      const command = (argv || []).filter(Boolean);
       audit({
-        ip, route: 'agent.start', workspace: workspace_id ?? null, cwd: cwd || null,
-        bytes: Buffer.byteLength(name) + Buffer.byteLength(argv.join(' ')),
+        ip, route: 'tab.create', workspace: workspace_id ?? null, cwd: cwd || null,
+        bytes: Buffer.byteLength(command.join(' ')),
       });
-      const params = { name: name.trim(), argv };
+      const params = { focus: false };
+      if (label?.trim()) params.label = label.trim();
       if (cwd) params.cwd = cwd;
       if (workspace_id) params.workspace_id = workspace_id;
-      const result = await rpc('agent.start', params);
-      touchActivity(result?.agent?.terminal_id);
+      const created = await rpc('tab.create', params);
+      const pane = created.root_pane;
+      if (command.length) {
+        const kind = path.basename(command[0]);
+        if (AGENT_KINDS.has(kind)) {
+          await rpc('agent.start', {
+            name: params.label || `${kind}-${created.tab.number}`, kind, pane_id: pane.pane_id, args: command.slice(1),
+          });
+        } else {
+          // Not an agent herdr knows: type it into the shell like the user would.
+          await rpc('pane.send_text', { pane_id: pane.pane_id, text: command.join(' ') });
+          await rpc('pane.send_keys', { pane_id: pane.pane_id, keys: ['enter'] });
+        }
+      }
+      touchActivity(pane.terminal_id);
       pollOverview();
-      return sendJSON(res, 200, result ?? { ok: true });
+      return sendJSON(res, 200, { type: 'tab_created', tab: created.tab, pane });
     }
 
     if (req.method === 'POST' && parts[1] === 'agents' && parts[3] === 'rename') {

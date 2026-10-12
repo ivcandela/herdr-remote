@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>herdr</title>
 <meta name="theme-color" content="#131312">
@@ -495,7 +495,10 @@
   .hrow .tok { -webkit-text-security: disc; }
   .hrow .rm { align-self: flex-end; font-size: 13px; color: var(--blocked); padding: 4px 8px; }
   #hostAdd { align-self: flex-start; font-size: 14px; color: var(--text-2); padding: 6px 2px; }
-  </style>
+    /* iOS Safari zooms the page when a text field under 16px gets focus, and keeps it zoomed. */
+  #composer textarea, #sheet input[type="text"], #hostsSheet input[type="text"],
+  .agent .title input, #detail .bar .t input { font-size: 16px; }
+</style>
 </head>
 <body>
 
@@ -580,10 +583,10 @@
 
 <div id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
   <form id="sheetForm">
-    <h3 id="sheetTitle">New agent</h3>
+    <h3 id="sheetTitle">New tab</h3>
     <div>
-      <label for="naName">Name</label>
-      <input type="text" id="naName" maxlength="64" required autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label for="naName">Name (optional)</label>
+      <input type="text" id="naName" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false">
     </div>
     <div>
       <label for="naCwd">Directory</label>
@@ -592,15 +595,16 @@
     <div>
       <label for="naCmd">Command</label>
       <div class="chips">
+        <button type="button" data-cmd="">shell</button>
         <button type="button" data-cmd="claude">claude</button>
         <button type="button" data-cmd="claude --continue">claude --continue</button>
         <button type="button" data-cmd="codex">codex</button>
       </div>
-      <input type="text" id="naCmd" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="custom command (split on whitespace, no shell)">
+      <input type="text" id="naCmd" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="empty = plain shell; or a command (split on whitespace)">
     </div>
     <div class="actions">
       <button type="button" id="naCancel">Cancel</button>
-      <button type="submit" class="primary" id="naSubmit">Start</button>
+      <button type="submit" class="primary" id="naSubmit">Open</button>
     </div>
   </form>
 </div>
@@ -704,8 +708,14 @@
   // Event titles keep the agent's spinner glyph; drop leading symbols.
   const cleanTitle = (t) => (t || '').replace(/^[^\p{L}\p{N}]+\s*/u, '');
   // A user-set name wins over the terminal title; plain shells have no agent.
-  const agentTitle = (a) => a.name || cleanTitle(a.terminal_title_stripped || a.terminal_title) || a.agent || 'process';
-  const agentKind = (a) => a.agent || 'process';
+  const agentTitle = (a) => a.name || cleanTitle(a.terminal_title_stripped || a.terminal_title) || a.agent || 'shell';
+  const agentKind = (a) => a.agent || 'shell';
+  // The herdr tab an agent or shell lives in, shown when its workspace has more than one.
+  function tabLabelOf(a) {
+    const ws = overview.workspaces.find((w) => w.host === a.host && w.workspace_id === a.workspace_id);
+    const tabs = ws?.tabs || [];
+    return tabs.length > 1 ? tabs.find((t) => t.tab_id === a.tab_id)?.label || '' : '';
+  }
   const postJSON = (path, body, host) => api(path, {
     host,
     method: 'POST',
@@ -782,7 +792,7 @@
     const hostSig = shown.map((h) => [h.id, h.name, hostState.get(h.id).status, hostState.get(h.id).error]);
     const sig = JSON.stringify([hostSig, sections.map(({ ws, agents }) =>
       [ws.host, ws.workspace_id, ws.label, agents.map((a) =>
-        [a.terminal_id, a.agent_status, agentTitle(a), a.agent, basename(a.cwd)])])]);
+        [a.terminal_id, a.agent_status, agentTitle(a), a.agent, basename(a.cwd), tabLabelOf(a)])])]);
     if (sig === renderedSig) return;
     renderedSig = sig;
     root.replaceChildren();
@@ -838,7 +848,7 @@
       const add = document.createElement('button');
       add.type = 'button';
       add.className = 'add';
-      add.setAttribute('aria-label', 'New agent in ' + (ws.label || 'workspace ' + ws.number));
+      add.setAttribute('aria-label', 'New tab in ' + (ws.label || 'workspace ' + ws.number));
       add.innerHTML = '<svg class="ic"><use href="#i-plus"></use></svg>';
       add.addEventListener('click', () => openSheet(ws));
       h.appendChild(add);
@@ -875,8 +885,9 @@
     sub.className = 'sub';
     const state = document.createElement('span');
     state.className = 'state';
-    state.textContent = a.agent_status || 'unknown';
-    sub.append(state, ' · ' + agentKind(a) + ' · ' + basename(a.cwd));
+    state.textContent = a.agent ? (a.agent_status || 'unknown') : 'shell';
+    const tab = tabLabelOf(a);
+    sub.append(state, ' · ' + [a.agent || null, tab ? 'tab ' + tab : null, basename(a.cwd)].filter(Boolean).join(' · '));
     meta.append(title, sub);
     open.append(dot, meta);
     open.insertAdjacentHTML('beforeend',
@@ -1014,7 +1025,7 @@
   });
 
   // ---- New-agent sheet ----
-  const PRESETS = ['claude', 'claude --continue', 'codex'];
+  const PRESETS = ['', 'claude', 'claude --continue', 'codex']; // '' = plain shell
   let sheetWs = null;
 
   function syncChips() {
@@ -1029,7 +1040,7 @@
     $('naCwd').value = ws.worktree?.checkout_path || ws.agents.find((a) => a.cwd)?.cwd || '';
     $('naCmd').value = PRESETS[0];
     syncChips();
-    $('sheetTitle').textContent = 'New agent in ' + (ws.label || 'workspace ' + ws.number)
+    $('sheetTitle').textContent = 'New tab in ' + (ws.label || 'workspace ' + ws.number)
       + (multiHost() ? ' on ' + hostById(ws.host).name : '');
     $('sheet').classList.add('open');
     $('naName').focus();
@@ -1056,20 +1067,18 @@
     const name = $('naName').value.trim();
     const cwd = $('naCwd').value.trim();
     const argv = $('naCmd').value.trim().split(/\s+/).filter(Boolean);
-    if (!name) { toast('Name is required'); return; }
-    if (!argv.length) { toast('Command is required'); return; }
     const btn = $('naSubmit');
     const hostId = sheetWs.host;
     btn.disabled = true;
     try {
-      const r = await postJSON('/api/agents', { name, cwd: cwd || null, workspace_id: sheetWs.workspace_id, argv }, hostId);
-      toast('Started ' + name);
+      const r = await postJSON('/api/tabs', { label: name || null, cwd: cwd || null, workspace_id: sheetWs.workspace_id, argv }, hostId);
+      toast('Opened ' + (name || (argv[0] || 'shell')));
       closeSheet();
       await loadOverview(hostId);
-      const id = r?.agent?.terminal_id;
+      const id = r?.pane?.terminal_id;
       if (id) { cameFromHome = true; location.hash = agentHash({ host: hostId, terminal_id: id }); }
     } catch (e) {
-      toast('Start failed: ' + e.message);
+      toast('Could not open tab: ' + e.message);
     } finally {
       btn.disabled = false;
     }

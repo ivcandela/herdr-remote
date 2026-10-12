@@ -37,23 +37,26 @@ poll so connected clients see the change without waiting for the 2.5s tick.
 
 | Route | Body | Maps to |
 |---|---|---|
-| `POST /api/agents` | `{name, cwd, workspace_id?, argv: string[]}` — `name` non-empty ≤ 64 chars, `argv` non-empty string array (no shell: split the command yourself), `cwd` optional string | `agent.start` → `{type:"agent_started", agent:{terminal_id, pane_id, …}, argv}` |
+| `POST /api/tabs` | `{label?, cwd?, workspace_id?, argv?: string[]}` — `label` ≤ 64 chars; `argv` empty or missing means a plain shell | `tab.create` (no focus), then for a known agent kind (`claude`, `codex`, … — see `AGENT_KINDS`) `agent.start` in the new root pane with `argv.slice(1)` as its args, otherwise the command is typed into the shell (`pane.send_text` + Enter) → `{type:"tab_created", tab, pane:{terminal_id, pane_id, …}}` |
 | `POST /api/agents/:terminalId/rename` | `{name}` — empty or `null` clears the custom name | `agent.rename` → `{type:"agent_info", agent:{…}}` |
 | `POST /api/panes/:paneId/close` | — | `pane.close` → `{type:"ok"}` |
 
 herdr param schemas (from `herdr api schema --json`): `agent.start`
-`{name, argv, cwd?, workspace_id?, tab_id?, split?, env?, focus?}`;
+`{name, kind, pane_id, args?, timeout_ms?}` (herdr ≥ 0.9 starts an agent only
+in an existing pane at a shell prompt, hence tab-then-agent above);
+`tab.create` `{label?, cwd?, workspace_id?, env?, focus?}`;
 `agent.rename` `{target, name: string|null}`; `pane.close` `{pane_id}`.
 A custom name comes back as `name` on `agent.list` entries and takes precedence
 over the terminal title in the UI.
 
 UI affordances:
 
-- **+** on each workspace header opens a bottom sheet: Name, Directory
-  (prefilled with the workspace's worktree checkout or the cwd of one of its
-  agents — `workspace.list` itself carries no cwd) and a Command chooser with
-  preset chips `claude`, `claude --continue`, `codex` plus a custom field
-  (split on whitespace into argv). On success the UI opens the new agent.
+- **+** on each workspace header opens a bottom sheet for a new tab: optional
+  Name (the tab label), Directory (prefilled with the workspace's worktree
+  checkout or the cwd of one of its agents — `workspace.list` itself carries no
+  cwd) and a Command chooser with preset chips `shell` (empty), `claude`,
+  `claude --continue`, `codex` plus a custom field (split on whitespace into
+  argv). On success the UI opens the new pane.
 - **⋯** on each agent card (the rest of the card still opens the detail view)
   and in the detail header: *Rename* swaps the title into an inline input
   (Enter/blur saves, Esc cancels, empty clears); *Close* asks inline
