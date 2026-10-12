@@ -629,21 +629,29 @@
   function loadHosts() {
     let list = [];
     try { list = JSON.parse(localStorage.getItem(HOSTS_KEY)) || []; } catch { /* corrupt entry: start over */ }
-    list = list.filter((h) => h && typeof h.id === 'string' && typeof h.url === 'string');
+    list = list.filter((h) => h && typeof h.id === 'string' && typeof h.url === 'string' && !h.via);
     if (!list.some((h) => h.id === 'local')) {
       list.unshift({ id: 'local', name: location.hostname || 'This Mac', url: '', token: localStorage.getItem('herdr_token') || '' });
     }
     return list;
   }
   function saveHosts() {
-    try { localStorage.setItem(HOSTS_KEY, JSON.stringify(hosts)); } catch { /* private mode */ }
+    // Peers come from the server each load; only the hosts the user added are kept.
+    try { localStorage.setItem(HOSTS_KEY, JSON.stringify(hosts.filter((h) => !h.via))); } catch { /* private mode */ }
   }
   const hosts = loadHosts();
   const hostById = (id) => hosts.find((h) => h.id === id) || hosts[0];
   const hostUrl = (h, path) => h.url + path;
+  // A peer is reached through its `via` host's /h/<name>/ proxy with that host's token.
+  const tokenOwner = (h) => (h.via ? hostById(h.via) : h);
+  const tokenOf = (h) => tokenOwner(h).token;
   // Per-host live state: {status: 'connecting'|'live'|'poll'|'offline', error, overview, es}
-  const hostState = new Map(hosts.map((h) => [h.id, { status: 'connecting', error: null, overview: { workspaces: [] }, es: null }]));
-  const multiHost = () => hosts.length > 1;
+  const hostState = new Map();
+  const initHostState = (h) => hostState.set(h.id, { status: 'connecting', error: null, overview: { workspaces: [] }, es: null });
+  hosts.forEach(initHostState);
+  // A peer that is off is simply absent; its sessions come back when it does.
+  const isShown = (h) => !h.via || hostState.get(h.id).overview.workspaces.length > 0;
+  const multiHost = () => hosts.filter(isShown).length > 1;
   // Agent/workspace objects are tagged with their host; ids are only unique per host.
   const agentHash = (a) => '#/agent/' + encodeURIComponent(a.host) + '/' + encodeURIComponent(a.terminal_id);
   let overview = { workspaces: [] };
@@ -671,11 +679,12 @@
     const { host: hostId, ...fetchOpts } = opts;
     const h = hostById(hostId);
     const headers = Object.assign({}, fetchOpts.headers);
-    if (h.token) headers.Authorization = 'Bearer ' + h.token;
+    if (tokenOf(h)) headers.Authorization = 'Bearer ' + tokenOf(h);
     const res = await fetch(hostUrl(h, path), Object.assign({}, fetchOpts, { headers }));
     if (res.status === 401) {
-      const t = prompt('Access token for ' + h.name + ':');
-      if (t) { h.token = t.trim(); saveHosts(); return api(path, opts); }
+      const owner = tokenOwner(h);
+      const t = prompt('Access token for ' + owner.name + ':');
+      if (t) { owner.token = t.trim(); saveHosts(); return api(path, opts); }
       throw new Error('unauthorized');
     }
     const body = await res.json().catch(() => ({}));
@@ -703,6 +712,18 @@
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
   });
+
+  // Peers the server fronts (--peer) become hosts that share its token.
+  async function loadPeers() {
+    try {
+      const r = await api('/api/peers');
+      for (const peer of r.peers || []) {
+        const h = { id: 'peer:' + peer.name, name: peer.name, url: '/h/' + encodeURIComponent(peer.name), token: '', via: 'local' };
+        hosts.push(h);
+        initHostState(h);
+      }
+    } catch { /* an older server has no peers; the UI works without them */ }
+  }
 
   // Tags a host's snapshot so every workspace and agent knows where it lives.
   function tagSnapshot(hostId, snap) {
@@ -757,7 +778,8 @@
     // Timestamps tick constantly; only touch the DOM when something visible moved.
     // Compare what is actually displayed: raw titles carry a spinner glyph
     // that changes on every tick but is stripped before rendering.
-    const hostSig = hosts.map((h) => [h.id, h.name, hostState.get(h.id).status, hostState.get(h.id).error]);
+    const shown = hosts.filter(isShown);
+    const hostSig = shown.map((h) => [h.id, h.name, hostState.get(h.id).status, hostState.get(h.id).error]);
     const sig = JSON.stringify([hostSig, sections.map(({ ws, agents }) =>
       [ws.host, ws.workspace_id, ws.label, agents.map((a) =>
         [a.terminal_id, a.agent_status, agentTitle(a), a.agent, basename(a.cwd)])])]);
@@ -794,7 +816,7 @@
     };
     if (multiHost()) {
       // Hosts with nothing to list (down, or no workspaces) still get a header.
-      for (const h of hosts) {
+      for (const h of shown) {
         const st = hostState.get(h.id);
         if (st.overview.workspaces.length) continue;
         sections.push({ ws: null, host: h, agents: [] });
@@ -1064,8 +1086,9 @@
         if (st.status === 'offline') st.status = 'connecting';
       } catch (e) {
         // fetch() throws a TypeError when the network or the host is down.
-        const down = e instanceof TypeError || navigator.onLine === false;
+        const down = e instanceof TypeError || navigator.onLine === false || !!h.via;
         st.status = down ? 'offline' : st.status;
+        if (h.via) st.overview = { workspaces: [] }; // a peer that is off drops out of the list
         st.error = down ? 'Cannot reach ' + h.name : 'Cannot reach herdr: ' + e.message;
       }
     }));
@@ -1430,7 +1453,7 @@
     if (!current) return;
     const h = hostById(current.host);
     const url = hostUrl(h, '/api/agents/' + encodeURIComponent(current.terminal_id) + '/stream?format=' + readFormat()
-      + (h.token ? '&token=' + encodeURIComponent(h.token) : ''));
+      + (tokenOf(h) ? '&token=' + encodeURIComponent(tokenOf(h)) : ''));
     paneEs = new EventSource(url);
     paneEs.onopen = () => setPaneLive(true);
     paneEs.addEventListener('output', (ev) => {
@@ -1646,7 +1669,7 @@
   // ---- Live updates: one SSE stream per host, polling for any host that isn't live ----
   // The header dot summarizes every host: green when all are live.
   function renderConn() {
-    const states = hosts.map((h) => hostState.get(h.id).status);
+    const states = hosts.filter(isShown).map((h) => hostState.get(h.id).status);
     const live = states.filter((x) => x === 'live').length;
     const mode = live === states.length ? 'live'
       : live > 0 || states.includes('poll') ? 'poll'
@@ -1687,7 +1710,7 @@
   function startSSE(h) {
     // Wire event names use underscores (pane_updated), not the dotted subscription types.
     const st = hostState.get(h.id);
-    const es = new EventSource(hostUrl(h, '/api/events' + (h.token ? '?token=' + encodeURIComponent(h.token) : '')));
+    const es = new EventSource(hostUrl(h, '/api/events' + (tokenOf(h) ? '?token=' + encodeURIComponent(tokenOf(h)) : '')));
     st.es = es;
     // Card status comes only from these authoritative snapshots.
     es.addEventListener('overview', (ev) => applySnapshot(h.id, JSON.parse(ev.data)));
@@ -1708,12 +1731,14 @@
     es.onerror = () => {
       setHostStatus(h.id, navigator.onLine === false ? 'offline' : 'poll');
       startPolling();
+      queueRefetch(h.id); // a peer that just went away should drop out now, not at the next tick
     };
   }
 
   function startPolling() {
     if (pollTimer) return;
     pollTimer = setInterval(() => {
+      for (const h of hosts) if (hostState.get(h.id).es?.readyState === EventSource.CLOSED) startSSE(h);
       loadOverview();
       if (current) loadOutput();
     }, 10000);
@@ -1775,7 +1800,7 @@
 
   const closeHosts = () => $('hostsSheet').classList.remove('open');
   $('hostsBtn').addEventListener('click', () => {
-    $('hostsList').replaceChildren(...hosts.map(hostRow));
+    $('hostsList').replaceChildren(...hosts.filter((h) => !h.via).map(hostRow));
     $('hostsSheet').classList.add('open');
   });
   $('hostAdd').addEventListener('click', () => {
@@ -1803,8 +1828,10 @@
     location.reload();
   });
 
-  loadOverview().then(route);
-  hosts.forEach(startSSE);
+  loadPeers().then(() => {
+    loadOverview().then(route);
+    hosts.forEach(startSSE);
+  });
 
   // ---- Browser notifications (agent needs attention) ----
   const notifySupported = 'Notification' in window;

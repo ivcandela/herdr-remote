@@ -11,6 +11,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { HistoryStore } from './history.mjs';
 import { listCommands } from './commands.mjs';
 import { corsHeaders, normalizeOrigin } from './cors.mjs';
+import { parsePeer, splitPeerPath, forwardSearch } from './peers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -35,6 +36,8 @@ const TOKEN = argValue('--token', null);
 const TLS_CERT = argValue('--tls-cert', null);
 const TLS_KEY = argValue('--tls-key', null);
 const NOTIFY = args.includes('--notify');
+const PEER_CONNECT_MS = 4000;
+const PEER_IDLE_MS = 60000;
 const HISTORY_LINES = Number(argValue('--history-lines', 10000));
 // Where an agent's slash commands and skills live; repeatable.
 const SKILL_DIRS = args.reduce((acc, a, i) => (a === '--skills-dir' && args[i + 1] ? [...acc, args[i + 1]] : acc), []);
@@ -45,6 +48,16 @@ const CORS_ORIGINS = args.reduce((acc, a, i) => {
   if (!origin) { console.error(`Invalid --cors-origin: ${args[i + 1]}`); process.exit(1); }
   return [...acc, origin];
 }, []);
+// Other herdr-web servers this one fronts at /h/<name>/api/*; repeatable.
+// They are called with --peer-token (default: our own token).
+const PEER_TOKEN = argValue('--peer-token', TOKEN);
+const PEERS = new Map();
+args.forEach((a, i) => {
+  if (a !== '--peer' || !args[i + 1]) return;
+  const peer = parsePeer(args[i + 1]);
+  if (!peer) { console.error(`Invalid --peer (want name=http://host:port): ${args[i + 1]}`); process.exit(1); }
+  PEERS.set(peer.name, peer);
+});
 if (!SKILL_DIRS.length) SKILL_DIRS.push(process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME, '.claude'));
 
 if (!['127.0.0.1', 'localhost', '::1'].includes(HOST) && !TOKEN) {
@@ -607,20 +620,57 @@ function serveStatic(res, urlPath) {
 }
 
 // ---- Routes ----
-async function handleApi(req, res, url) {
+// Throttles and authenticates; on failure it has already answered, so callers just return.
+function passesAuth(req, res, url) {
+  if (!TOKEN) return true;
   const ip = req.socket.remoteAddress || 'unknown';
-  if (TOKEN) {
-    if (isThrottled(ip)) {
-      res.setHeader('Retry-After', String(AUTH_WINDOW_MS / 1000));
-      return sendJSON(res, 429, { error: 'too many failed attempts' });
-    }
-    if (!authorized(req, url)) {
-      recordAuthFailure(ip);
-      audit({ ip, route: url.pathname, event: 'auth_failed' });
-      return sendJSON(res, 401, { error: 'unauthorized' });
-    }
-    authFailures.delete(ip);
+  if (isThrottled(ip)) {
+    res.setHeader('Retry-After', String(AUTH_WINDOW_MS / 1000));
+    sendJSON(res, 429, { error: 'too many failed attempts' });
+    return false;
   }
+  if (!authorized(req, url)) {
+    recordAuthFailure(ip);
+    audit({ ip, route: url.pathname, event: 'auth_failed' });
+    sendJSON(res, 401, { error: 'unauthorized' });
+    return false;
+  }
+  authFailures.delete(ip);
+  return true;
+}
+
+// Forwards /h/<name>/api/* to that peer, swapping our token for the peer's.
+// SSE streams pass straight through; an unreachable peer is a quick 502.
+function proxyToPeer(req, res, url) {
+  const target = splitPeerPath(url.pathname);
+  const peer = target && PEERS.get(target.name);
+  if (!peer) return sendJSON(res, 404, { error: 'unknown peer' });
+  // Authenticate against the path the peer will see, so the SSE ?token= rule still applies.
+  const peerView = new URL(target.path + url.search, 'http://peer');
+  if (!passesAuth(req, res, peerView)) return;
+  const upstream = new URL(target.path + forwardSearch(url.search), peer.url);
+  const headers = {};
+  for (const h of ['content-type', 'content-length', 'accept']) if (req.headers[h]) headers[h] = req.headers[h];
+  if (PEER_TOKEN) headers.authorization = 'Bearer ' + PEER_TOKEN;
+  const preq = (upstream.protocol === 'https:' ? https : http).request(upstream, { method: req.method, headers, timeout: PEER_CONNECT_MS }, (pres) => {
+    // Connected: peers ping SSE streams every 25s, so a long silence means the peer is gone.
+    preq.setTimeout(PEER_IDLE_MS);
+    res.writeHead(pres.statusCode, pres.headers);
+    pres.pipe(res);
+    // A peer that dies mid-stream never ends the pipe; drop the client so it reconnects.
+    pres.on('close', () => { if (!res.writableEnded) res.destroy(); });
+  });
+  preq.on('timeout', () => preq.destroy(new Error('timeout')));
+  preq.on('error', () => {
+    if (!res.headersSent) sendJSON(res, 502, { error: `peer ${target.name} unreachable` });
+    else res.end();
+  });
+  res.on('close', () => preq.destroy());
+  req.pipe(preq);
+}
+
+async function handleApi(req, res, url) {
+  if (!passesAuth(req, res, url)) return;
   // decode segments: pane ids contain ':' which clients URL-encode
   const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent); // ['api', ...]
 
@@ -748,6 +798,10 @@ async function handleApi(req, res, url) {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/peers') {
+      return sendJSON(res, 200, { peers: [...PEERS.keys()].map((name) => ({ name })) });
+    }
+
     sendJSON(res, 404, { error: 'not found' });
   } catch (e) {
     sendJSON(res, e.status || 502, { error: e.message, code: e.code });
@@ -766,6 +820,7 @@ const onRequest = (req, res) => {
     }
     return handleApi(req, res, url);
   }
+  if (url.pathname.startsWith('/h/')) return proxyToPeer(req, res, url);
   if (req.method !== 'GET') return sendJSON(res, 405, { error: 'method not allowed' });
   serveStatic(res, url.pathname);
 };

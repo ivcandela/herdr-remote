@@ -32,7 +32,8 @@ npm start   # http://127.0.0.1:4270, localhost only
 node server.mjs [--port 4270] [--host 127.0.0.1] [--token <secret>] \
                 [--tls-cert cert.pem --tls-key key.pem] [--history-lines 10000] \
                 [--skills-dir ~/.claude] [--notify] \
-                [--cors-origin http://other-host:4270]
+                [--cors-origin http://other-host:4270] \
+                [--peer name=http://other-host:4270 [--peer-token <secret>]]
 ```
 
 Binding past localhost **without `--token` is refused**. `npm test` runs the
@@ -40,12 +41,19 @@ suite (`node --test`, no dependencies).
 
 ### Several machines in one UI
 
-Run herdr-web on each machine, then open the UI from any one of them and add
-the others under the server icon in the header (URL plus that host's token).
-The browser talks to each host directly, so every host must allow the origin
-the UI is served from: start it with `--cors-origin http://<ui-host>:4270`
-(repeatable, exact origin match). Without the flag nothing is allowed
-cross-origin, so single-host setups are unchanged.
+Two ways, which can be mixed:
+
+- **Peers (one URL, one token).** Run herdr-web on every machine, then start
+  the one you open from your phone with `--peer travel=http://<other>:4270`
+  (repeatable; `--peer-token` if the other machine's token differs, default
+  is this server's own). It proxies the other server's API at
+  `/h/travel/api/*`, so the UI lists both machines' sessions and the other
+  machine needs no extra setup. A peer that is off is simply absent and comes
+  back by itself when it returns.
+- **Direct hosts.** Add servers under the server icon in the header (URL plus
+  token). The browser talks to them directly, so they must allow the origin
+  the UI came from: `--cors-origin http://<ui-host>:4270` (repeatable, exact
+  match). Without the flag nothing is allowed cross-origin.
 
 ## Setup outside this repo
 
