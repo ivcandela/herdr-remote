@@ -31,11 +31,21 @@ Needs Node 22+ and a running herdr >= 0.8 (its socket is discovered via
 npm start   # http://127.0.0.1:4270, localhost only
 node server.mjs [--port 4270] [--host 127.0.0.1] [--token <secret>] \
                 [--tls-cert cert.pem --tls-key key.pem] [--history-lines 10000] \
-                [--skills-dir ~/.claude] [--notify]
+                [--skills-dir ~/.claude] [--notify] \
+                [--cors-origin http://other-host:4270]
 ```
 
 Binding past localhost **without `--token` is refused**. `npm test` runs the
 suite (`node --test`, no dependencies).
+
+### Several machines in one UI
+
+Run herdr-web on each machine, then open the UI from any one of them and add
+the others under the server icon in the header (URL plus that host's token).
+The browser talks to each host directly, so every host must allow the origin
+the UI is served from: start it with `--cors-origin http://<ui-host>:4270`
+(repeatable, exact origin match). Without the flag nothing is allowed
+cross-origin, so single-host setups are unchanged.
 
 ## Setup outside this repo
 

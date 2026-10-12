@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { HistoryStore } from './history.mjs';
 import { listCommands } from './commands.mjs';
+import { corsHeaders, normalizeOrigin } from './cors.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -37,6 +38,13 @@ const NOTIFY = args.includes('--notify');
 const HISTORY_LINES = Number(argValue('--history-lines', 10000));
 // Where an agent's slash commands and skills live; repeatable.
 const SKILL_DIRS = args.reduce((acc, a, i) => (a === '--skills-dir' && args[i + 1] ? [...acc, args[i + 1]] : acc), []);
+// Other herdr-web origins whose UI may call this API; repeatable.
+const CORS_ORIGINS = args.reduce((acc, a, i) => {
+  if (a !== '--cors-origin' || !args[i + 1]) return acc;
+  const origin = normalizeOrigin(args[i + 1]);
+  if (!origin) { console.error(`Invalid --cors-origin: ${args[i + 1]}`); process.exit(1); }
+  return [...acc, origin];
+}, []);
 if (!SKILL_DIRS.length) SKILL_DIRS.push(process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME, '.claude'));
 
 if (!['127.0.0.1', 'localhost', '::1'].includes(HOST) && !TOKEN) {
@@ -749,7 +757,15 @@ async function handleApi(req, res, url) {
 const SCHEME = TLS_CERT ? 'https' : 'http';
 const onRequest = (req, res) => {
   const url = new URL(req.url, `${SCHEME}://${req.headers.host || 'localhost'}`);
-  if (url.pathname.startsWith('/api/')) return handleApi(req, res, url);
+  if (url.pathname.startsWith('/api/')) {
+    const cors = corsHeaders(CORS_ORIGINS, req.headers.origin);
+    if (cors) for (const [k, v] of Object.entries(cors)) res.setHeader(k, v);
+    if (req.method === 'OPTIONS') {
+      res.writeHead(cors ? 204 : 403);
+      return res.end();
+    }
+    return handleApi(req, res, url);
+  }
   if (req.method !== 'GET') return sendJSON(res, 405, { error: 'method not allowed' });
   serveStatic(res, url.pathname);
 };

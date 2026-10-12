@@ -1,5 +1,5 @@
 // Precaches the static shell only; /api/* is never intercepted (SSE, live data).
-const SW_VERSION = '13';
+const SW_VERSION = '14';
 const CACHE = 'herdr-shell-v' + SW_VERSION;
 const SHELL = [
   '/',

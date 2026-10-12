@@ -437,12 +437,71 @@
     z-index: 20; max-width: 88vw;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-</style>
+  /* ---- Hosts bottom sheet (same look) ---- */
+  #hostsSheet {
+    position: fixed; inset: 0; z-index: 15; display: none;
+    background: rgba(0,0,0,.45);
+  }
+  #hostsSheet.open { display: block; }
+  #hostsSheet form {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    max-width: 640px; margin: 0 auto;
+    padding: 16px max(16px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 16px) max(16px, env(safe-area-inset-left));
+    background: var(--surface); color: var(--text);
+    border-radius: 18px 18px 0 0; border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #hostsSheet h3 { font-size: 16px; font-weight: 600; }
+  #hostsSheet label { font-size: 12px; color: var(--text-2); display: block; margin-bottom: 4px; }
+  #hostsSheet input[type="text"] {
+    width: 100%; height: 42px; padding: 0 12px; border-radius: 10px;
+    font: 14px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--line);
+  }
+  #hostsSheet .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  #hostsSheet .chips button {
+    height: 32px; padding: 0 12px; border-radius: 999px;
+    font: 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    background: var(--surface-2); border: 1px solid var(--line);
+  }
+  #hostsSheet .chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #hostsSheet .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  #hostsSheet .actions button { height: 42px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--line); }
+  #hostsSheet .actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #hostsSheet .actions .primary:disabled { opacity: .5; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 90px);
+    transform: translateX(-50%) translateY(8px);
+    background: var(--text); color: var(--bg);
+    font-size: 13px; padding: 9px 16px; border-radius: 10px;
+    opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s;
+    z-index: 20; max-width: 88vw;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #hostsBtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px; opacity: .6;
+  }
+  h2.host {
+    font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--text); padding: 4px 2px 10px; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line);
+  }
+  h2.host .count { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text-2); }
+  #hostsList { display: flex; flex-direction: column; gap: 14px; max-height: 55vh; overflow-y: auto; }
+  .hrow { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .hrow input[type="text"] { height: 38px; }
+  .hrow .tok { -webkit-text-security: disc; }
+  .hrow .rm { align-self: flex-end; font-size: 13px; color: var(--blocked); padding: 4px 8px; }
+  #hostAdd { align-self: flex-start; font-size: 14px; color: var(--text-2); padding: 6px 2px; }
+  </style>
 </head>
 <body>
 
 <!-- Lucide (ISC) -->
 <svg class="sprite" aria-hidden="true">
+  <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
   <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
   <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742"/><path d="m2 2 20 20"/><path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05"/></symbol>
   <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
@@ -464,6 +523,7 @@
     <h1>herdr</h1>
     <span id="conn"><span class="dot"></span><span id="connLabel">connecting</span></span>
     <span id="attention" role="status"></span>
+    <button type="button" id="hostsBtn" aria-label="Hosts" title="Hosts"><svg class="ic"><use href="#i-server"></use></svg></button>
     <button type="button" id="notifyBtn" aria-pressed="false" aria-label="Notifications" title="Notifications off"><svg class="ic"><use href="#i-bell"></use></svg></button>
   </header>
   <div id="workspaces"><p class="note">Loading…</p></div>
@@ -545,17 +605,50 @@
   </form>
 </div>
 
+<div id="hostsSheet" role="dialog" aria-modal="true" aria-labelledby="hostsTitle">
+  <form id="hostsForm">
+    <h3 id="hostsTitle">Hosts</h3>
+    <div id="hostsList"></div>
+    <button type="button" id="hostAdd">+ Add host</button>
+    <div class="actions">
+      <button type="button" id="hostsCancel">Cancel</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+  </form>
+</div>
+
 <div id="toast" role="status"></div>
 
 <script>
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  let token = localStorage.getItem('herdr_token') || '';
+  // ---- Hosts: this server plus any other herdr-web instances the UI talks to ----
+  // Each entry is {id, name, url, token}; url '' means the server serving this page.
+  const HOSTS_KEY = 'herdr_hosts';
+  function loadHosts() {
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem(HOSTS_KEY)) || []; } catch { /* corrupt entry: start over */ }
+    list = list.filter((h) => h && typeof h.id === 'string' && typeof h.url === 'string');
+    if (!list.some((h) => h.id === 'local')) {
+      list.unshift({ id: 'local', name: location.hostname || 'This Mac', url: '', token: localStorage.getItem('herdr_token') || '' });
+    }
+    return list;
+  }
+  function saveHosts() {
+    try { localStorage.setItem(HOSTS_KEY, JSON.stringify(hosts)); } catch { /* private mode */ }
+  }
+  const hosts = loadHosts();
+  const hostById = (id) => hosts.find((h) => h.id === id) || hosts[0];
+  const hostUrl = (h, path) => h.url + path;
+  // Per-host live state: {status: 'connecting'|'live'|'poll'|'offline', error, overview, es}
+  const hostState = new Map(hosts.map((h) => [h.id, { status: 'connecting', error: null, overview: { workspaces: [] }, es: null }]));
+  const multiHost = () => hosts.length > 1;
+  // Agent/workspace objects are tagged with their host; ids are only unique per host.
+  const agentHash = (a) => '#/agent/' + encodeURIComponent(a.host) + '/' + encodeURIComponent(a.terminal_id);
   let overview = { workspaces: [] };
   let current = null;          // agent object currently open in detail
   let pollTimer = null;
-  let es = null;
   let refetchTimer = null;
   let cameFromHome = false;    // detail was opened by in-app navigation
   let lastEventRev = -1;       // newest pane_updated revision seen for the open pane
@@ -573,13 +666,16 @@
   let olderLoading = false;
 
   // ---- API ----
+  // opts.host is a host id (default: this server); the rest goes to fetch().
   async function api(path, opts = {}) {
-    const headers = Object.assign({}, opts.headers);
-    if (token) headers.Authorization = 'Bearer ' + token;
-    const res = await fetch(path, Object.assign({}, opts, { headers }));
+    const { host: hostId, ...fetchOpts } = opts;
+    const h = hostById(hostId);
+    const headers = Object.assign({}, fetchOpts.headers);
+    if (h.token) headers.Authorization = 'Bearer ' + h.token;
+    const res = await fetch(hostUrl(h, path), Object.assign({}, fetchOpts, { headers }));
     if (res.status === 401) {
-      const t = prompt('Access token for herdr-web:');
-      if (t) { token = t.trim(); localStorage.setItem('herdr_token', token); return api(path, opts); }
+      const t = prompt('Access token for ' + h.name + ':');
+      if (t) { h.token = t.trim(); saveHosts(); return api(path, opts); }
       throw new Error('unauthorized');
     }
     const body = await res.json().catch(() => ({}));
@@ -601,11 +697,27 @@
   // A user-set name wins over the terminal title; plain shells have no agent.
   const agentTitle = (a) => a.name || cleanTitle(a.terminal_title_stripped || a.terminal_title) || a.agent || 'process';
   const agentKind = (a) => a.agent || 'process';
-  const postJSON = (path, body) => api(path, {
+  const postJSON = (path, body, host) => api(path, {
+    host,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
   });
+
+  // Tags a host's snapshot so every workspace and agent knows where it lives.
+  function tagSnapshot(hostId, snap) {
+    const workspaces = Array.isArray(snap?.workspaces) ? snap.workspaces : [];
+    for (const ws of workspaces) {
+      ws.host = hostId;
+      for (const a of ws.agents || []) a.host = hostId;
+    }
+    return { ...snap, workspaces };
+  }
+
+  // The home list is every host's workspaces, in host order.
+  function mergeOverview() {
+    overview = { workspaces: hosts.flatMap((h) => hostState.get(h.id).overview.workspaces) };
+  }
 
   // ---- Home rendering ----
   // Blocked agents first, then most recently active; sessions with no known
@@ -645,17 +757,54 @@
     // Timestamps tick constantly; only touch the DOM when something visible moved.
     // Compare what is actually displayed: raw titles carry a spinner glyph
     // that changes on every tick but is stripped before rendering.
-    const sig = JSON.stringify(sections.map(({ ws, agents }) =>
-      [ws.workspace_id, ws.label, agents.map((a) =>
-        [a.terminal_id, a.agent_status, agentTitle(a), a.agent, basename(a.cwd)])]));
+    const hostSig = hosts.map((h) => [h.id, h.name, hostState.get(h.id).status, hostState.get(h.id).error]);
+    const sig = JSON.stringify([hostSig, sections.map(({ ws, agents }) =>
+      [ws.host, ws.workspace_id, ws.label, agents.map((a) =>
+        [a.terminal_id, a.agent_status, agentTitle(a), a.agent, basename(a.cwd)])])]);
     if (sig === renderedSig) return;
     renderedSig = sig;
     root.replaceChildren();
-    if (!overview.workspaces.length) {
-      root.innerHTML = '<p class="note">No workspaces. Is the herdr server running?</p>';
-      return;
+    if (!multiHost()) {
+      const err = hostState.get(hosts[0].id).error;
+      if (err && !overview.workspaces.length) {
+        root.innerHTML = '<p class="note"></p>';
+        root.firstChild.textContent = err;
+        return;
+      }
+      if (!overview.workspaces.length) {
+        root.innerHTML = '<p class="note">No workspaces. Is the herdr server running?</p>';
+        return;
+      }
     }
-    for (const { ws, agents } of sections) {
+    let lastHost = null;
+    const hostHeader = (h) => {
+      const st = hostState.get(h.id);
+      const el = document.createElement('h2');
+      el.className = 'host';
+      const dot = document.createElement('span');
+      dot.className = 'status ' + (st.status === 'live' ? 'idle' : st.status === 'poll' ? 'working' : st.status === 'offline' ? 'blocked' : 'unknown');
+      el.append(dot, h.name);
+      if (st.error) {
+        const e = document.createElement('span');
+        e.className = 'count';
+        e.textContent = st.error;
+        el.appendChild(e);
+      }
+      return el;
+    };
+    if (multiHost()) {
+      // Hosts with nothing to list (down, or no workspaces) still get a header.
+      for (const h of hosts) {
+        const st = hostState.get(h.id);
+        if (st.overview.workspaces.length) continue;
+        sections.push({ ws: null, host: h, agents: [] });
+      }
+      sections.sort((x, y) => hosts.indexOf(hostById(x.ws ? x.ws.host : x.host.id)) - hosts.indexOf(hostById(y.ws ? y.ws.host : y.host.id)));
+    }
+    for (const { ws, host, agents } of sections) {
+      const hostId = ws ? ws.host : host.id;
+      if (multiHost() && hostId !== lastHost) { root.appendChild(hostHeader(hostById(hostId))); lastHost = hostId; }
+      if (!ws) continue;
       const sec = document.createElement('section');
       sec.className = 'ws';
       const h = document.createElement('h2');
@@ -712,7 +861,7 @@
       '<svg class="ic chev"><use href="#i-chevron-right"></use></svg>');
     const go = () => {
       cameFromHome = true;
-      location.hash = '#/agent/' + encodeURIComponent(a.terminal_id);
+      location.hash = agentHash(a);
     };
     open.addEventListener('click', (ev) => { if (!ev.target.closest('input')) go(); });
     open.addEventListener('keydown', (ev) => {
@@ -765,7 +914,7 @@
       q.textContent = 'Close this agent?';
       menu.replaceChildren(q, mk('Yes', 'danger', async () => {
         try {
-          await postJSON('/api/panes/' + encodeURIComponent(a.pane_id) + '/close');
+          await postJSON('/api/panes/' + encodeURIComponent(a.pane_id) + '/close', {}, a.host);
           toast('Closed ' + agentTitle(a));
           closeMenus();
           opts.onClosed?.();
@@ -807,7 +956,7 @@
       titleEl.textContent = save && next ? next : prev;
       if (save && next !== (a.name || '')) {
         try {
-          await postJSON('/api/agents/' + encodeURIComponent(a.terminal_id) + '/rename', { name: next || null });
+          await postJSON('/api/agents/' + encodeURIComponent(a.terminal_id) + '/rename', { name: next || null }, a.host);
           toast(next ? 'Renamed' : 'Name cleared');
         } catch (e) {
           titleEl.textContent = prev;
@@ -858,7 +1007,8 @@
     $('naCwd').value = ws.worktree?.checkout_path || ws.agents.find((a) => a.cwd)?.cwd || '';
     $('naCmd').value = PRESETS[0];
     syncChips();
-    $('sheetTitle').textContent = 'New agent in ' + (ws.label || 'workspace ' + ws.number);
+    $('sheetTitle').textContent = 'New agent in ' + (ws.label || 'workspace ' + ws.number)
+      + (multiHost() ? ' on ' + hostById(ws.host).name : '');
     $('sheet').classList.add('open');
     $('naName').focus();
   }
@@ -887,14 +1037,15 @@
     if (!name) { toast('Name is required'); return; }
     if (!argv.length) { toast('Command is required'); return; }
     const btn = $('naSubmit');
+    const hostId = sheetWs.host;
     btn.disabled = true;
     try {
-      const r = await postJSON('/api/agents', { name, cwd: cwd || null, workspace_id: sheetWs.workspace_id, argv });
+      const r = await postJSON('/api/agents', { name, cwd: cwd || null, workspace_id: sheetWs.workspace_id, argv }, hostId);
       toast('Started ' + name);
       closeSheet();
-      await loadOverview();
+      await loadOverview(hostId);
       const id = r?.agent?.terminal_id;
-      if (id) { cameFromHome = true; location.hash = '#/agent/' + encodeURIComponent(id); }
+      if (id) { cameFromHome = true; location.hash = agentHash({ host: hostId, terminal_id: id }); }
     } catch (e) {
       toast('Start failed: ' + e.message);
     } finally {
@@ -902,43 +1053,54 @@
     }
   });
 
-  async function loadOverview() {
-    try {
-      overview = await api('/api/overview');
-      render();
-      if (current) {
-        const fresh = findAgent(current.terminal_id);
-        if (fresh) { current = fresh; updateDetailHeader(); }
+  // Fetches one host's overview, or every host's in parallel when no id is given.
+  async function loadOverview(hostId) {
+    const targets = hostId ? [hostById(hostId)] : hosts;
+    await Promise.all(targets.map(async (h) => {
+      const st = hostState.get(h.id);
+      try {
+        st.overview = tagSnapshot(h.id, await api('/api/overview', { host: h.id }));
+        st.error = null;
+        if (st.status === 'offline') st.status = 'connecting';
+      } catch (e) {
+        // fetch() throws a TypeError when the network or the host is down.
+        const down = e instanceof TypeError || navigator.onLine === false;
+        st.status = down ? 'offline' : st.status;
+        st.error = down ? 'Cannot reach ' + h.name : 'Cannot reach herdr: ' + e.message;
       }
-    } catch (e) {
-      // fetch() throws a TypeError when the network itself is down (offline PWA shell).
-      if (e instanceof TypeError || navigator.onLine === false) {
-        setConn('offline');
-        $('workspaces').innerHTML = '<p class="note">Offline — cannot reach herdr-web.</p>';
-        return;
-      }
-      $('workspaces').innerHTML = '<p class="note">Cannot reach herdr: ' + e.message + '</p>';
-    }
+    }));
+    mergeOverview();
+    renderConn();
+    render();
+    refreshCurrent();
   }
 
-  function findAgent(terminalId) {
+  function refreshCurrent() {
+    if (!current) return;
+    const fresh = findAgent(current.terminal_id, current.host);
+    if (fresh) { current = fresh; updateDetailHeader(); }
+  }
+
+  function findAgent(terminalId, hostId) {
     for (const ws of overview.workspaces)
       for (const a of ws.agents)
-        if (a.terminal_id === terminalId) return a;
+        if (a.terminal_id === terminalId && a.host === hostId) return a;
     return null;
   }
 
-  // ---- Router: #/ = home, #/agent/<terminal_id> = detail ----
+  // ---- Router: #/ = home, #/agent/<host>/<terminal_id> = detail ----
+  // The older #/agent/<terminal_id> form means this server.
   function route() {
-    const m = location.hash.match(/^#\/agent\/(.+)$/);
-    if (m) showAgent(decodeURIComponent(m[1]));
-    else hideDetail();
+    const m = location.hash.match(/^#\/agent\/([^/]+)(?:\/(.+))?$/);
+    if (!m) return hideDetail();
+    if (m[2] !== undefined) showAgent(decodeURIComponent(m[2]), decodeURIComponent(m[1]));
+    else showAgent(decodeURIComponent(m[1]), 'local');
   }
   window.addEventListener('hashchange', route);
 
-  async function showAgent(terminalId) {
+  async function showAgent(terminalId, hostId) {
     if (!overview.workspaces.length) await loadOverview(); // deep link: resolve id first
-    const a = findAgent(terminalId);
+    const a = findAgent(terminalId, hostId);
     if (!a) return showNotFound(terminalId);
     current = a;
     lastEventRev = -1;
@@ -1160,7 +1322,7 @@
     btn.classList.add('spin');
     try {
       const fmt = readFormat();
-      const r = await api('/api/agents/' + encodeURIComponent(current.terminal_id) + '/output?lines=1000&source=recent&format=' + fmt);
+      const r = await api('/api/agents/' + encodeURIComponent(current.terminal_id) + '/output?lines=1000&source=recent&format=' + fmt, { host: current.host });
       if (fmt === readFormat()) renderOutput(r.text ?? '', r.start ?? 0, r.total ?? null);
     } catch (e) {
       toast('Read failed: ' + e.message);
@@ -1203,7 +1365,7 @@
     updateEarlierBtn();
     try {
       const r = await api('/api/agents/' + encodeURIComponent(current.terminal_id)
-        + '/history?before=' + before + '&lines=1000&format=' + readFormat());
+        + '/history?before=' + before + '&lines=1000&format=' + readFormat(), { host: current.host });
       const prevH = out.scrollHeight, prevTop = out.scrollTop;
       older.text = older.text ? r.text + '\n' + older.text : r.text;
       older.start = r.start;
@@ -1223,9 +1385,10 @@
   // lines in between so the two stay contiguous.
   async function fillGap(from, to) {
     const id = current?.terminal_id;
+    const hostId = current?.host;
     older.end = to; // claim the range first so concurrent renders don't refetch
     try {
-      const r = await api('/api/agents/' + encodeURIComponent(id) + '/history?before=' + to + '&lines=' + (to - from) + '&format=' + readFormat());
+      const r = await api('/api/agents/' + encodeURIComponent(id) + '/history?before=' + to + '&lines=' + (to - from) + '&format=' + readFormat(), { host: hostId });
       if (current?.terminal_id !== id) return;
       older.text = older.text ? older.text + '\n' + r.text : r.text;
       renderOlder();
@@ -1265,8 +1428,9 @@
   function openPaneStream() {
     closePaneStream();
     if (!current) return;
-    const url = '/api/agents/' + encodeURIComponent(current.terminal_id) + '/stream?format=' + readFormat()
-      + (token ? '&token=' + encodeURIComponent(token) : '');
+    const h = hostById(current.host);
+    const url = hostUrl(h, '/api/agents/' + encodeURIComponent(current.terminal_id) + '/stream?format=' + readFormat()
+      + (h.token ? '&token=' + encodeURIComponent(h.token) : ''));
     paneEs = new EventSource(url);
     paneEs.onopen = () => setPaneLive(true);
     paneEs.addEventListener('output', (ev) => {
@@ -1289,6 +1453,7 @@
 
   function sendKeys(keys) {
     return api('/api/panes/' + encodeURIComponent(current.pane_id) + '/keys', {
+      host: current.host,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ keys }),
@@ -1343,7 +1508,7 @@
     $('slashBtn').hidden = true;
     if (!current) return;
     try {
-      const r = await api('/api/agents/' + encodeURIComponent(current.terminal_id) + '/commands');
+      const r = await api('/api/agents/' + encodeURIComponent(current.terminal_id) + '/commands', { host: current.host });
       commands = r.commands || [];
     } catch { /* an agent without commands just keeps the button hidden */ }
     $('slashBtn').hidden = !commands.length;
@@ -1447,6 +1612,7 @@
         await sendKeys([...text].map((c) => (c === ' ' ? 'space' : c === '\n' ? 'enter' : c)));
       } else {
         await api('/api/agents/' + encodeURIComponent(current.terminal_id) + '/send', {
+          host: current.host,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text }),
@@ -1477,50 +1643,72 @@
     });
   });
 
-  // ---- Live updates: SSE with polling fallback ----
-  function setConn(mode) {
-    const el = $('conn');
-    el.className = mode;
-    $('connLabel').textContent = mode === 'live' ? 'live' : mode === 'poll' ? 'polling' : mode === 'offline' ? 'offline' : 'connecting';
+  // ---- Live updates: one SSE stream per host, polling for any host that isn't live ----
+  // The header dot summarizes every host: green when all are live.
+  function renderConn() {
+    const states = hosts.map((h) => hostState.get(h.id).status);
+    const live = states.filter((x) => x === 'live').length;
+    const mode = live === states.length ? 'live'
+      : live > 0 || states.includes('poll') ? 'poll'
+      : states.every((x) => x === 'offline') ? 'offline' : 'connecting';
+    $('conn').className = mode;
+    $('connLabel').textContent = states.length > 1 && live !== states.length && live > 0
+      ? live + '/' + states.length + ' live'
+      : mode === 'live' ? 'live' : mode === 'poll' ? 'polling' : mode === 'offline' ? 'offline' : 'connecting';
   }
 
-  function queueRefetch() {
-    clearTimeout(refetchTimer);
-    refetchTimer = setTimeout(loadOverview, 300);
+  function setHostStatus(hostId, status) {
+    hostState.get(hostId).status = status;
+    renderConn();
+    render();
+  }
+
+  const refetchTimers = new Map();
+  function queueRefetch(hostId) {
+    clearTimeout(refetchTimers.get(hostId));
+    refetchTimers.set(hostId, setTimeout(() => loadOverview(hostId), 300));
   }
 
   // Apply an authoritative overview snapshot (from reads, not events).
   // Coalesced so a burst can't repaint the list repeatedly.
-  let snapshotTimer = null;
-  function applySnapshot(snapshot) {
-    overview = snapshot;
-    clearTimeout(snapshotTimer);
-    snapshotTimer = setTimeout(() => {
+  const snapshotTimers = new Map();
+  function applySnapshot(hostId, snapshot) {
+    const st = hostState.get(hostId);
+    st.overview = tagSnapshot(hostId, snapshot);
+    st.error = null;
+    clearTimeout(snapshotTimers.get(hostId));
+    snapshotTimers.set(hostId, setTimeout(() => {
+      mergeOverview();
       render();
-      if (current) {
-        const fresh = findAgent(current.terminal_id);
-        if (fresh) { current = fresh; updateDetailHeader(); }
-      }
-    }, 500);
+      refreshCurrent();
+    }, 500));
   }
 
-  function startSSE() {
+  function startSSE(h) {
     // Wire event names use underscores (pane_updated), not the dotted subscription types.
-    const url = '/api/events' + (token ? '?token=' + encodeURIComponent(token) : '');
-    es = new EventSource(url);
+    const st = hostState.get(h.id);
+    const es = new EventSource(hostUrl(h, '/api/events' + (h.token ? '?token=' + encodeURIComponent(h.token) : '')));
+    st.es = es;
     // Card status comes only from these authoritative snapshots.
-    es.addEventListener('overview', (ev) => applySnapshot(JSON.parse(ev.data)));
+    es.addEventListener('overview', (ev) => applySnapshot(h.id, JSON.parse(ev.data)));
     // pane_updated is now only an output-refresh hint for the open agent.
     es.addEventListener('pane_updated', (ev) => {
       const p = JSON.parse(ev.data).pane;
-      if (p && current && current.pane_id === p.pane_id) scheduleOutput(p.revision);
+      if (p && current && current.host === h.id && current.pane_id === p.pane_id) scheduleOutput(p.revision);
     });
     es.addEventListener('connected', () => {
-      if (current) { lastEventRev = -1; scheduleOutput(); }
+      if (current && current.host === h.id) { lastEventRev = -1; scheduleOutput(); }
     });
-    es.addEventListener('status_changed', (ev) => notifyStatusChange(JSON.parse(ev.data)));
-    es.onopen = () => { setConn('live'); stopPolling(); queueRefetch(); };
-    es.onerror = () => { setConn(navigator.onLine === false ? 'offline' : 'poll'); startPolling(); };
+    es.addEventListener('status_changed', (ev) => notifyStatusChange(h.id, JSON.parse(ev.data)));
+    es.onopen = () => {
+      setHostStatus(h.id, 'live');
+      if (hosts.every((x) => hostState.get(x.id).status === 'live')) stopPolling();
+      queueRefetch(h.id);
+    };
+    es.onerror = () => {
+      setHostStatus(h.id, navigator.onLine === false ? 'offline' : 'poll');
+      startPolling();
+    };
   }
 
   function startPolling() {
@@ -1546,8 +1734,77 @@
     }
   });
 
+  // ---- Hosts sheet: edit the list, then reload so every stream reconnects ----
+  // Accepts `192.168.1.5:4270` or a full URL; returns the origin, or null if unusable.
+  function normalizeHostUrl(v) {
+    const t = v.trim();
+    if (!t) return null;
+    try { return new URL(/^https?:\/\//i.test(t) ? t : 'http://' + t).origin; } catch { return null; }
+  }
+
+  function hostRow(h) {
+    const row = document.createElement('div');
+    row.className = 'hrow';
+    row.dataset.id = h.id;
+    const field = (cls, value, placeholder, label) => {
+      const i = document.createElement('input');
+      i.type = 'text';
+      i.className = cls;
+      i.value = value;
+      i.placeholder = placeholder;
+      i.setAttribute('aria-label', label);
+      i.autocomplete = 'off';
+      i.autocapitalize = 'off';
+      i.spellcheck = false;
+      return i;
+    };
+    const local = h.id === 'local';
+    const url = field('url', h.url, local ? 'this server' : 'http://192.168.178.148:4270', 'URL');
+    url.readOnly = local;
+    row.append(field('name', h.name, 'name', 'Name'), url, field('tok', h.token, 'token', 'Token'));
+    if (!local) {
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'rm';
+      rm.textContent = 'Remove';
+      rm.addEventListener('click', () => row.remove());
+      row.appendChild(rm);
+    }
+    return row;
+  }
+
+  const closeHosts = () => $('hostsSheet').classList.remove('open');
+  $('hostsBtn').addEventListener('click', () => {
+    $('hostsList').replaceChildren(...hosts.map(hostRow));
+    $('hostsSheet').classList.add('open');
+  });
+  $('hostAdd').addEventListener('click', () => {
+    const row = hostRow({ id: 'h' + Date.now().toString(36), name: '', url: '', token: '' });
+    $('hostsList').appendChild(row);
+    row.querySelector('.name').focus();
+  });
+  $('hostsCancel').addEventListener('click', closeHosts);
+  $('hostsSheet').addEventListener('click', (ev) => { if (ev.target === $('hostsSheet')) closeHosts(); });
+  $('hostsForm').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const next = [];
+    for (const row of $('hostsList').children) {
+      const id = row.dataset.id;
+      const name = row.querySelector('.name').value.trim();
+      const token = row.querySelector('.tok').value.trim();
+      const url = id === 'local' ? '' : normalizeHostUrl(row.querySelector('.url').value);
+      if (!name) { toast('Every host needs a name'); return; }
+      if (url === null) { toast('Invalid URL for ' + name); return; }
+      next.push({ id, name, url, token });
+    }
+    if (!next.some((h) => h.id === 'local')) next.unshift(hostById('local'));
+    hosts.splice(0, hosts.length, ...next);
+    saveHosts();
+    location.reload();
+  });
+
   loadOverview().then(route);
-  startSSE();
+  hosts.forEach(startSSE);
 
   // ---- Browser notifications (agent needs attention) ----
   const notifySupported = 'Notification' in window;
@@ -1586,13 +1843,14 @@
     renderNotifyBtn();
   }
 
-  function notifyStatusChange(c) {
+  function notifyStatusChange(hostId, c) {
     if (!notifyEnabled()) return;
     // Skip when the user is already looking at this agent.
-    if (!document.hidden && current && current.terminal_id === c.terminal_id) return;
+    if (!document.hidden && current && current.host === hostId && current.terminal_id === c.terminal_id) return;
     try {
-      const n = new Notification(c.name + ' · ' + c.to, { body: c.workspace, tag: c.terminal_id, icon: '/icon-192.png' });
-      n.onclick = () => { location.hash = '#/agent/' + encodeURIComponent(c.terminal_id); window.focus(); n.close(); };
+      const where = multiHost() ? hostById(hostId).name + ' · ' + c.workspace : c.workspace;
+      const n = new Notification(c.name + ' · ' + c.to, { body: where, tag: hostId + ':' + c.terminal_id, icon: '/icon-192.png' });
+      n.onclick = () => { location.hash = agentHash({ host: hostId, terminal_id: c.terminal_id }); window.focus(); n.close(); };
     } catch (e) { /* e.g. Android requires SW-backed notifications */ }
   }
 
